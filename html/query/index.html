@@ -1,0 +1,63 @@
+<!--
+ * @Author: shanghanjin
+ * @Date: 2024-08-29 09:55:44
+ * @LastEditTime: 2024-09-04 11:25:16
+ * @FilePath: \UserFeedBack\html\query\index.html
+ * @Description: 
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>反馈记录</title>
+    <style>
+        /* 表格的边框和分割线 */
+        table {
+            width: 100%;
+            border-collapse: collapse; /* 合并边框 */
+        }
+        
+        th, td {
+            border: 1px solid #dddddd; /* 边框颜色 */
+            text-align: left; /* 左对齐文本 */
+            padding: 8px; /* 内间距 */
+            white-space: pre-line; /* 允许\n自动转换成br */
+            word-wrap: break-word; /* 在长单词或URL地址内部进行换行 */
+            max-width: 100px; /* 最大宽度 */
+            overflow: auto; /* 滚动行为 */
+        }
+        
+        th {
+            background-color: #f2f2f2; /* 表头背景颜色 */
+        }
+
+        /* 表格的行的鼠标悬停背景色 */
+        tr:hover {background-color: #f5f5f5;}
+    </style>
+</head>
+<body>
+    <h1>反馈列表</h1>
+    <table id="dataList">
+        <thead>
+            <tr>
+                <th>影响模块</th>
+                <th>发生频率</th>
+                <th>Bug描述</th>
+                <th>产生步骤</th>
+                <th>软件版本</th>
+                <th>上传日期</th>
+                <th>Email</th>
+                <th>附件</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+        </tbody>
+    </table>
+
+    <div class="pagination" id="pagination"></div>
+
+    <script src="js/query.js"></script>
+</body>
+</html>
