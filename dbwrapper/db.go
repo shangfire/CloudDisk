@@ -1,8 +1,8 @@
 /*
  * @Author: shanghanjin
  * @Date: 2024-08-25 20:51:47
- * @LastEditTime: 2024-09-05 10:21:22
- * @FilePath: \UserFeedBack\dbwrapper\db.go
+ * @LastEditTime: 2024-09-13 14:38:49
+ * @FilePath: \CloudDisk\dbwrapper\db.go
  * @Description: 数据库操作封装
  */
 package dbwrapper
@@ -95,6 +95,11 @@ func CloseDB() error {
 	return db.Close()
 }
 
+/**
+ * @description: 查询文件夹下的所有文件夹和文件
+ * @param {*int64} folderID 文件夹ID
+ * @return {*}
+ */
 func QueryFolder(folderID *int64) ([]dto.Folder, []dto.File, error) {
 	var (
 		folders    []dto.Folder
@@ -169,4 +174,50 @@ func QueryFolder(folderID *int64) ([]dto.Folder, []dto.File, error) {
 	}
 
 	return folders, files, nil
+}
+
+func CreateFolder(folderName string, folderPath string, parentFolderID *int64) (int64, error) {
+	query := "INSERT INTO folders (name, path, parent_folder_id) VALUES (?, ?, ?);"
+	res, err := db.Exec(query, folderName, folderPath, parentFolderID)
+	if err != nil {
+		return 0, err
+	}
+
+	return res.LastInsertId()
+}
+
+func CreateFile(fileName string, filePath string, fileSize int64, parentFolderID *int64) (int64, error) {
+	query := "SELECT id FROM files WHERE path = ?;"
+	row := db.QueryRow(query, filePath)
+
+	var fileID int64
+	err := row.Scan(&fileID)
+	if err != nil {
+		return 0, err
+	}
+
+	if fileID != 0 {
+	    UpdateFileUpdateTime(fileID)
+		return fileID, nil
+	}
+
+	query = "INSERT INTO files (name, path, size, parent_folder_id) VALUES (?, ?, ?, ?);"
+	res, err := db.Exec(query, fileName, filePath, fileSize, parentFolderID)
+	if err != nil {
+		return 0, err
+	}
+
+	return res.LastInsertId()
+}
+
+func RenameFile(fileID int64, fileName string) error {
+	query := "UPDATE files SET name = ? WHERE id = ?;"
+	_, err := db.Exec(query, fileName, fileID)
+	return err
+}
+
+func UpdateFileUpdateTime(fileID int64) error {
+	query := "UPDATE files SET updated_at = NOW() WHERE id = ?;"
+	_, err := db.Exec(query, fileID)
+	return err
 }
