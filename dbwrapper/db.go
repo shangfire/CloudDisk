@@ -95,12 +95,17 @@ func CloseDB() error {
 	return db.Close()
 }
 
+type QueryFolderResult struct {
+	Folders []dto.Folder `json:"folders"`
+	Files   []dto.File   `json:"files"`
+}
+
 /**
  * @description: 查询文件夹下的所有文件夹和文件
  * @param {*int64} folderID 文件夹ID
  * @return {*}
  */
-func QueryFolder(folderID *int64) ([]dto.Folder, []dto.File, error) {
+func QueryFolder(folderID *int64) (*QueryFolderResult, error) {
 	var (
 		folders    []dto.Folder
 		files      []dto.File
@@ -120,7 +125,7 @@ func QueryFolder(folderID *int64) ([]dto.Folder, []dto.File, error) {
 	}
 
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	defer rowsFolder.Close()
@@ -130,7 +135,7 @@ func QueryFolder(folderID *int64) ([]dto.Folder, []dto.File, error) {
 		var parentFolderID sql.NullInt64
 		err := rowsFolder.Scan(&folder.ID, &folder.Name, &folder.Path, &parentFolderID, &folder.CreatedAt, &folder.UpdatedAt)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 
 		if parentFolderID.Valid {
@@ -152,7 +157,7 @@ func QueryFolder(folderID *int64) ([]dto.Folder, []dto.File, error) {
 	}
 
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	defer rowsFile.Close()
@@ -162,7 +167,7 @@ func QueryFolder(folderID *int64) ([]dto.Folder, []dto.File, error) {
 		var parentFolderID sql.NullInt64
 		err := rowsFile.Scan(&file.ID, &file.Name, &file.Path, &file.Size, &file.CreatedAt, &file.UpdatedAt, &parentFolderID)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 
 		if parentFolderID.Valid {
@@ -173,7 +178,7 @@ func QueryFolder(folderID *int64) ([]dto.Folder, []dto.File, error) {
 		files = append(files, file)
 	}
 
-	return folders, files, nil
+	return &QueryFolderResult{Folders: folders, Files: files}, nil
 }
 
 func CreateFolder(folderName string, folderPath string, parentFolderID *int64) (int64, error) {
@@ -197,7 +202,7 @@ func CreateFile(fileName string, filePath string, fileSize int64, parentFolderID
 	}
 
 	if fileID != 0 {
-	    UpdateFileUpdateTime(fileID)
+		UpdateFileUpdateTime(fileID)
 		return fileID, nil
 	}
 
@@ -208,6 +213,18 @@ func CreateFile(fileName string, filePath string, fileSize int64, parentFolderID
 	}
 
 	return res.LastInsertId()
+}
+
+func DeleteFile(fileID int64) error {
+	query := "DELETE FROM files WHERE id = ?;"
+	_, err := db.Exec(query, fileID)
+	return err
+}
+
+func DeleteFolder(folderID int64) error {
+	query := "DELETE FROM folders WHERE id = ?;"
+	_, err := db.Exec(query, folderID)
+	return err
 }
 
 func RenameFile(fileID int64, fileName string) error {

@@ -8,31 +8,14 @@
 package main
 
 import (
+	"CloudDisk/business"
 	"CloudDisk/configwrapper"
 	"CloudDisk/dbwrapper"
 	"CloudDisk/logwrapper"
-	"fmt"
 	"net/http"
 
 	"github.com/sirupsen/logrus"
 )
-
-/**
- * @description: 汇报反馈接口
- * @param {http.ResponseWriter} w
- * @param {*http.Request} r
- * @return {*}
- */
-func queryFolder(w http.ResponseWriter, r *http.Request) {
-	// 检查请求方法
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// 响应客户端已完成
-	fmt.Fprintf(w, "Files uploaded successfully")
-}
 
 func main() {
 	// 初始化日志库
@@ -54,7 +37,7 @@ func main() {
 	http.Handle("/query/", http.StripPrefix("/query", queryFS))
 
 	// 设置各接口响应函数
-	http.HandleFunc("/api/queryFolder", queryFolder)
+	http.HandleFunc("/api/uploadFile", business.UploadFile)
 
 	logwrapper.Logger.Info("Server is running")
 
