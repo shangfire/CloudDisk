@@ -32,6 +32,9 @@ func main() {
 	dbwrapper.InitDB()
 	defer dbwrapper.CloseDB()
 
+	// 初始化基础文件夹
+	business.MakeAbsoluteFolder("")
+
 	// 提供浏览页面的服务
 	queryFS := http.FileServer(http.Dir("./html/query"))
 	http.Handle("/query/", http.StripPrefix("/query", queryFS))

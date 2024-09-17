@@ -52,7 +52,7 @@ func InitDB() {
 
 		// 检查 folders 表是否存在，如果不存在则创建它
 		createTabFolder := `
-		CREATE TABLE folders (
+		CREATE TABLE IF NOT EXISTS folders (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,  -- 文件夹唯一标识
 			name VARCHAR(255) NOT NULL,            -- 文件夹名
 			path VARCHAR(1024) NOT NULL,           -- 文件夹路径
@@ -69,7 +69,7 @@ func InitDB() {
 
 		// 检查 files 表是否存在，如果不存在则创建它
 		createTabFile := `
-		CREATE TABLE files (
+		CREATE TABLE IF NOT EXISTS files (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,  -- 文件唯一标识
 			name VARCHAR(255) NOT NULL,            -- 文件名
 			path VARCHAR(1024) NOT NULL,           -- 文件存储路径
@@ -77,7 +77,7 @@ func InitDB() {
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- 文件创建时间
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,  -- 文件更新时间
 			parent_folder_id BIGINT,                      -- 文件所属文件夹ID
-			CONSTRAINT fk_folder FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE  -- 文件夹ID外键，删除文件夹时级联删除文件
+			CONSTRAINT fk_folder FOREIGN KEY (id) REFERENCES folders(id) ON DELETE CASCADE  -- 文件夹ID外键，删除文件夹时级联删除文件
 		);
 		`
 
@@ -105,7 +105,7 @@ type QueryFolderResult struct {
  * @param {*int64} folderID 文件夹ID
  * @return {*}
  */
-func QueryFolder(folderID *int64) (*QueryFolderResult, error) {
+func QueryFolderContent(folderID *int64) (*QueryFolderResult, error) {
 	var (
 		folders    []dto.Folder
 		files      []dto.File
@@ -179,6 +179,19 @@ func QueryFolder(folderID *int64) (*QueryFolderResult, error) {
 	}
 
 	return &QueryFolderResult{Folders: folders, Files: files}, nil
+}
+
+func QueryFolderPath(folderID *int64) (string, error) {
+	if folderID == nil {
+		return "", nil
+	}
+
+	query := "SELECT path FROM folders WHERE id = ?;"
+	row := db.QueryRow(query, folderID)
+
+	var folderPath string
+	err := row.Scan(&folderPath)
+	return folderPath, err
 }
 
 func CreateFolder(folderName string, folderPath string, parentFolderID *int64) (int64, error) {
