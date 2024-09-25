@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 func QueryFolder(w http.ResponseWriter, r *http.Request) {
@@ -42,32 +43,39 @@ func QueryFolder(w http.ResponseWriter, r *http.Request) {
 }
 
 func UploadFile(w http.ResponseWriter, r *http.Request) {
-	type UploadFileRequest struct {
-		FileName       string `json:"fileName"`
-		FileSize       int64  `json:"fileSize"`
-		ParentFolderID *int64 `json:"parentFolderID,omitempty"`
-	}
-
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method is not supported.", http.StatusNotFound)
 		return
 	}
 
-	// parse the request body
-	var req UploadFileRequest
-	err := json.NewDecoder(r.Body).Decode(&req)
+	file, handler, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Error retrieving the file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// 从表单中获取其他字段（如果有的话）
+	parentFolderIDStr := r.FormValue("parentFolderID")
+	parentFolderID, err := strconv.ParseInt(parentFolderIDStr, 10, 64)
+	if err != nil && parentFolderIDStr != "" {
+		http.Error(w, "Invalid parentFolderID", http.StatusBadRequest)
 		return
 	}
 
-	parentFolderPath, err := dbwrapper.QueryFolderPath(req.ParentFolderID)
+	fileName := r.FormValue("fileName")
+	if fileName == "" {
+		http.Error(w, "Error retrieving the fileName", http.StatusBadRequest)
+		return
+	}
+
+	parentFolderPath, err := dbwrapper.QueryFolderPath(&parentFolderID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	fullPath := filepath.Join(GetBaseFolderPath(), parentFolderPath, req.FileName)
+	fullPath := filepath.Join(GetBaseFolderPath(), parentFolderPath, handler.Filename)
 	MkPathFolder(fullPath)
 
 	fileWrite, err := os.Create(fullPath)
@@ -77,28 +85,13 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 	defer fileWrite.Close()
 
-	buf := make([]byte, 4096)
-	for {
-		n, err := r.Body.Read(buf)
-		if n > 0 {
-			_, err := fileWrite.Write(buf[:n])
-			if err != nil {
-				http.Error(w, "Error writing to file", http.StatusInternalServerError)
-				return
-			}
-		}
-
-		if err == io.EOF {
-			break
-		}
-
-		if err != nil {
-			http.Error(w, "Error reading request body", http.StatusInternalServerError)
-			return
-		}
+	// 复制文件内容
+	if _, err := io.Copy(fileWrite, file); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	_, err = dbwrapper.CreateFile(req.FileName, fullPath, req.FileSize, req.ParentFolderID)
+	_, err = dbwrapper.CreateFile(handler.Filename, fullPath, 0, &parentFolderID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -107,8 +107,8 @@ type QueryFolderResult struct {
  */
 func QueryFolderContent(folderID *int64) (*QueryFolderResult, error) {
 	var (
-		folders    []dto.Folder
-		files      []dto.File
+		folders    = []dto.Folder{}
+		files      = []dto.File{}
 		rowsFolder *sql.Rows
 		rowsFile   *sql.Rows
 		err        error

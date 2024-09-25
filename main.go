@@ -1,8 +1,8 @@
 /*
  * @Author: shanghanjin
  * @Date: 2024-08-12 11:38:02
- * @LastEditTime: 2024-09-09 13:58:23
- * @FilePath: \UserFeedBack\main.go
+ * @LastEditTime: 2024-09-24 19:47:19
+ * @FilePath: \CloudDisk\main.go
  * @Description:main
  */
 package main
@@ -40,7 +40,11 @@ func main() {
 	http.Handle("/query/", http.StripPrefix("/query", queryFS))
 
 	// 设置各接口响应函数
+	http.HandleFunc("/api/queryFolder", business.QueryFolder)
 	http.HandleFunc("/api/uploadFile", business.UploadFile)
+	http.HandleFunc("/api/createFolder", business.CreateFolder)
+	http.HandleFunc("/api/deleteFile", business.DeleteFile)
+	http.HandleFunc("/api/deleteFolder", business.DeleteFolder)
 
 	logwrapper.Logger.Info("Server is running")
 
