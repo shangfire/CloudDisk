@@ -1,7 +1,7 @@
 /*
  * @Author: shanghanjin
  * @Date: 2024-08-25 20:51:47
- * @LastEditTime: 2024-09-13 14:38:49
+ * @LastEditTime: 2024-09-26 20:11:53
  * @FilePath: \CloudDisk\dbwrapper\db.go
  * @Description: 数据库操作封装
  */
@@ -210,11 +210,11 @@ func CreateFile(fileName string, filePath string, fileSize int64, parentFolderID
 
 	var fileID int64
 	err := row.Scan(&fileID)
-	if err != nil {
+	if err != sql.ErrNoRows && err != nil {
 		return 0, err
 	}
 
-	if fileID != 0 {
+	if err != sql.ErrNoRows {
 		UpdateFileUpdateTime(fileID)
 		return fileID, nil
 	}

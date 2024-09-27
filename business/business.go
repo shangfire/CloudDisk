@@ -30,6 +30,11 @@ func QueryFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ensure FolderID to be nil when it is 0
+	if req.FolderID != nil && *req.FolderID == 0 {
+		req.FolderID = nil
+	}
+
 	// query file
 	queryResult, err := dbwrapper.QueryFolderContent(req.FolderID)
 	if err != nil {
@@ -57,28 +62,27 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 
 	// 从表单中获取其他字段（如果有的话）
 	parentFolderIDStr := r.FormValue("parentFolderID")
-	parentFolderID, err := strconv.ParseInt(parentFolderIDStr, 10, 64)
-	if err != nil && parentFolderIDStr != "" {
-		http.Error(w, "Invalid parentFolderID", http.StatusBadRequest)
-		return
+	var parentFolderIDPtr *int64
+	if parentFolderIDStr != "" {
+		parentFolderID, err := strconv.ParseInt(parentFolderIDStr, 10, 64)
+		if err != nil {
+			http.Error(w, "Invalid parentFolderID", http.StatusBadRequest)
+			return
+		}
+		parentFolderIDPtr = &parentFolderID
 	}
 
-	fileName := r.FormValue("fileName")
-	if fileName == "" {
-		http.Error(w, "Error retrieving the fileName", http.StatusBadRequest)
-		return
-	}
-
-	parentFolderPath, err := dbwrapper.QueryFolderPath(&parentFolderID)
+	parentFolderPath, err := dbwrapper.QueryFolderPath(parentFolderIDPtr)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	fullPath := filepath.Join(GetBaseFolderPath(), parentFolderPath, handler.Filename)
-	MkPathFolder(fullPath)
+	localFullPath := filepath.Join(GetBaseFolderPath(), parentFolderPath, handler.Filename)
+	MkPathFolder(localFullPath)
+	relativePath := filepath.Join(parentFolderPath, handler.Filename)
 
-	fileWrite, err := os.Create(fullPath)
+	fileWrite, err := os.Create(localFullPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -91,7 +95,7 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = dbwrapper.CreateFile(handler.Filename, fullPath, 0, &parentFolderID)
+	_, err = dbwrapper.CreateFile(handler.Filename, relativePath, 0, parentFolderIDPtr)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
