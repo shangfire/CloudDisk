@@ -8,8 +8,9 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
+	"path"
 	"strconv"
+	"strings"
 )
 
 func QueryFolder(w http.ResponseWriter, r *http.Request) {
@@ -53,6 +54,7 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 获取文件字段
 	file, handler, err := r.FormFile("file")
 	if err != nil {
 		http.Error(w, "Error retrieving the file", http.StatusBadRequest)
@@ -60,28 +62,45 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// 从表单中获取其他字段（如果有的话）
+	// 获取父文件夹id字段
 	parentFolderIDStr := r.FormValue("parentFolderID")
-	var parentFolderIDPtr *int64
-	if parentFolderIDStr != "" {
-		parentFolderID, err := strconv.ParseInt(parentFolderIDStr, 10, 64)
-		if err != nil {
-			http.Error(w, "Invalid parentFolderID", http.StatusBadRequest)
-			return
-		}
-		parentFolderIDPtr = &parentFolderID
+	if parentFolderIDStr == "" {
+		http.Error(w, "parentFolderID is required", http.StatusBadRequest)
+		return
 	}
 
-	parentFolderPath, err := dbwrapper.QueryFolderPath(parentFolderIDPtr)
+	parentFolderID, err := strconv.ParseInt(parentFolderIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid parentFolderID", http.StatusBadRequest)
+		return
+	}
+
+	// 获取文件大小字段
+	fileSizeStr := r.FormValue("fileSize")
+	if fileSizeStr == "" {
+		http.Error(w, "fileSize is required", http.StatusBadRequest)
+		return
+	}
+
+	fileSize, err := strconv.ParseInt(fileSizeStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid fileSize", http.StatusBadRequest)
+		return
+	}
+
+	// 查询父文件夹路径
+	parentFolderPath, err := dbwrapper.QueryFolderPath(parentFolderID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	localFullPath := filepath.Join(GetBaseFolderPath(), parentFolderPath, handler.Filename)
+	// 拼接写入路径
+	localFullPath := path.Join(GetBaseFolderPath(), parentFolderPath, handler.Filename) // filepath会自动转换路径分隔符
 	MkPathFolder(localFullPath)
-	relativePath := filepath.Join(parentFolderPath, handler.Filename)
+	relativePath := path.Join(parentFolderPath, handler.Filename) // path不会自动转换路径分隔符
 
+	// 复制文件内容
 	fileWrite, err := os.Create(localFullPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -89,13 +108,13 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 	defer fileWrite.Close()
 
-	// 复制文件内容
 	if _, err := io.Copy(fileWrite, file); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	_, err = dbwrapper.CreateFile(handler.Filename, relativePath, 0, parentFolderIDPtr)
+	// 写入数据库
+	_, err = dbwrapper.CreateFile(handler.Filename, relativePath, fileSize, parentFolderID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -221,13 +240,14 @@ func GetBaseFolderPath() string {
 		logwrapper.Logger.Fatal(err)
 	}
 
-	exeFolder := filepath.Dir(exePath)
-	baseFolderPath := filepath.Join(exeFolder, configwrapper.Cfg.Local.BaseFolder)
+	exePath = strings.ReplaceAll(exePath, "\\", "/")
+	exeFolder := path.Dir(exePath)
+	baseFolderPath := path.Join(exeFolder, configwrapper.Cfg.Local.BaseFolder)
 	return baseFolderPath
 }
 
-func MkPathFolder(path string) {
-	os.MkdirAll(filepath.Dir(path), os.ModePerm)
+func MkPathFolder(pathStr string) {
+	os.MkdirAll(path.Dir(pathStr), os.ModePerm)
 }
 
 func MakeAbsoluteFolder(relativePath string) {
@@ -236,7 +256,8 @@ func MakeAbsoluteFolder(relativePath string) {
 		logwrapper.Logger.Fatal(err)
 	}
 
-	exeFolder := filepath.Dir(exePath)
-	absoluteFolder := filepath.Join(exeFolder, configwrapper.Cfg.Local.BaseFolder, relativePath)
+	exePath = strings.ReplaceAll(exePath, "\\", "/")
+	exeFolder := path.Dir(exePath)
+	absoluteFolder := path.Join(exeFolder, configwrapper.Cfg.Local.BaseFolder, relativePath)
 	os.MkdirAll(absoluteFolder, os.ModePerm)
 }
