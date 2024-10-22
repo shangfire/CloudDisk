@@ -30,7 +30,7 @@ func (f FileType) String() string {
 
 type File struct {
 	ID             int64     `json:"id"`
-	ParentFolderID *int64    `json:"parentFolderId,omitempty"`
+	ParentFolderID int64     `json:"parentFolderId"`
 	Name           string    `json:"name"`
 	Type           FileType  `json:"fileType"`
 	Path           string    `json:"path"`
@@ -41,7 +41,7 @@ type File struct {
 
 type Folder struct {
 	ID             int64     `json:"id"`
-	ParentFolderID *int64    `json:"parentFolderId,omitempty"`
+	ParentFolderID int64     `json:"parentFolderId"`
 	Name           string    `json:"name"`
 	Path           string    `json:"path"`
 	CreatedAt      time.Time `json:"createdAt"`

@@ -5,6 +5,7 @@ import (
 	"CloudDisk/dbwrapper"
 	"CloudDisk/logwrapper"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -15,7 +16,7 @@ import (
 
 func QueryFolder(w http.ResponseWriter, r *http.Request) {
 	type QueryFolderRequest struct {
-		FolderID *int64 `json:"folderID,omitempty"`
+		FolderID int64 `json:"folderID"`
 	}
 
 	if r.Method != http.MethodPost {
@@ -31,11 +32,6 @@ func QueryFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ensure FolderID to be nil when it is 0
-	if req.FolderID != nil && *req.FolderID == 0 {
-		req.FolderID = nil
-	}
-
 	// query file
 	queryResult, err := dbwrapper.QueryFolderContent(req.FolderID)
 	if err != nil {
@@ -46,6 +42,51 @@ func QueryFolder(w http.ResponseWriter, r *http.Request) {
 	// convert queryResult to json and write to response
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(queryResult)
+}
+
+func CreateFolder(w http.ResponseWriter, r *http.Request) {
+	type CreateFolderRequest struct {
+		FolderName     string `json:"folderName"`
+		ParentFolderID int64  `json:"parentFolderID"`
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method is not supported.", http.StatusNotFound)
+		return
+	}
+
+	// parse the request body
+	var req CreateFolderRequest
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	parentFolderPath, err := dbwrapper.QueryFolderPath(req.ParentFolderID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// create folder of file path
+	relativePath := path.Join(parentFolderPath, req.FolderName)
+	localFullPath := path.Join(GetBaseFolderPath(), relativePath)
+	err = os.MkdirAll(localFullPath, os.ModePerm)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	folderID, err := dbwrapper.CreateFolder(req.FolderName, req.ParentFolderID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(fmt.Sprintf(`{"folderID": %d}`, folderID)))
 }
 
 func UploadFile(w http.ResponseWriter, r *http.Request) {
@@ -96,9 +137,9 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 拼接写入路径
-	localFullPath := path.Join(GetBaseFolderPath(), parentFolderPath, handler.Filename) // filepath会自动转换路径分隔符
-	MkPathFolder(localFullPath)
 	relativePath := path.Join(parentFolderPath, handler.Filename) // path不会自动转换路径分隔符
+	localFullPath := path.Join(GetBaseFolderPath(), relativePath) // filepath会自动转换路径分隔符
+	MkPathFolder(localFullPath)
 
 	// 复制文件内容
 	fileWrite, err := os.Create(localFullPath)
@@ -114,20 +155,21 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 写入数据库
-	_, err = dbwrapper.CreateFile(handler.Filename, relativePath, fileSize, parentFolderID)
+	fileID, err := dbwrapper.CreateFile(handler.Filename, fileSize, parentFolderID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Write([]byte("File uploaded successfully"))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(fmt.Sprintf(`{"fileID": %d}`, fileID)))
 }
 
-func CreateFolder(w http.ResponseWriter, r *http.Request) {
-	type CreateFolderRequest struct {
-		FolderName     string `json:"folderName"`
-		FolderPath     string `json:"folderPath"`
-		ParentFolderID *int64 `json:"parentFolderID,omitempty"`
+func RenameFolder(w http.ResponseWriter, r *http.Request) {
+	type RenameFolderRequest struct {
+		FolderName string `json:"folderName"`
+		FolderID   int64  `json:"folderID"`
 	}
 
 	if r.Method != http.MethodPost {
@@ -136,34 +178,44 @@ func CreateFolder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// parse the request body
-	var req CreateFolderRequest
+	var req RenameFolderRequest
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// create folder of file path
-	var fullPath = configwrapper.Cfg.Local.BaseFolder + req.FolderPath
-	err = os.MkdirAll(fullPath+req.FolderName, os.ModePerm)
+	if req.FolderID == 1 {
+		http.Error(w, "Cannot rename root folder", http.StatusBadRequest)
+		return
+	}
+
+	parentFolderPath, err := dbwrapper.QueryFolderPath(req.FolderID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	_, err = dbwrapper.CreateFolder(req.FolderName, req.FolderPath, req.ParentFolderID)
+	var oldPath = path.Join(GetBaseFolderPath(), parentFolderPath)
+	var newPath = path.Join(path.Dir(oldPath), req.FolderName)
+	err = os.Rename(oldPath, newPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Write([]byte("Folder created successfully"))
+	err = dbwrapper.RenameFolder(req.FolderID, req.FolderName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Write([]byte("Folder renamed successfully"))
 }
 
-func DeleteFile(w http.ResponseWriter, r *http.Request) {
-	type DeleteFileRequest struct {
+func RenameFile(w http.ResponseWriter, r *http.Request) {
+	type RenameFileRequest struct {
 		FileName string `json:"fileName"`
-		FilePath string `json:"filePath"`
 		FileID   int64  `json:"fileID"`
 	}
 
@@ -173,35 +225,39 @@ func DeleteFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// parse the request body
-	var req DeleteFileRequest
+	var req RenameFileRequest
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// delete file from local storage
-	var fullPath = configwrapper.Cfg.Local.BaseFolder + req.FilePath + req.FileName
-	err = os.Remove(fullPath)
+	file, err := dbwrapper.QueryFile(req.FileID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	err = dbwrapper.DeleteFile(req.FileID)
+	var oldPath = path.Join(GetBaseFolderPath(), file.Path)
+	var newPath = path.Join(path.Dir(oldPath), req.FileName)
+	err = os.Rename(oldPath, newPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Write([]byte("File deleted successfully"))
+	err = dbwrapper.RenameFile(req.FileID, req.FileName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Write([]byte("File renamed successfully"))
 }
 
 func DeleteFolder(w http.ResponseWriter, r *http.Request) {
 	type DeleteFolderRequest struct {
-		FolderName string `json:"folderName"`
-		FolderPath string `json:"folderPath"`
-		FolderID   int64  `json:"folderID"`
+		FolderID int64 `json:"folderID"`
 	}
 
 	if r.Method != http.MethodPost {
@@ -217,9 +273,19 @@ func DeleteFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// delete folder from local storage
-	var fullPath = configwrapper.Cfg.Local.BaseFolder + req.FolderPath + req.FolderName
-	err = os.RemoveAll(fullPath)
+	if req.FolderID == 1 {
+		http.Error(w, "Cannot delete root folder", http.StatusBadRequest)
+		return
+	}
+
+	folder, err := dbwrapper.QueryFolder(req.FolderID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var localPath = path.Join(GetBaseFolderPath(), folder.Path)
+	err = os.RemoveAll(localPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -232,6 +298,47 @@ func DeleteFolder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Write([]byte("Folder deleted successfully"))
+}
+
+func DeleteFile(w http.ResponseWriter, r *http.Request) {
+	type DeleteFileRequest struct {
+		FileID int64 `json:"fileID"`
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method is not supported.", http.StatusNotFound)
+		return
+	}
+
+	// parse the request body
+	var req DeleteFileRequest
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	fileInfo, err := dbwrapper.QueryFile(req.FileID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// delete file from local storage
+	var localPath = path.Join(GetBaseFolderPath(), fileInfo.Path)
+	err = os.Remove(localPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = dbwrapper.DeleteFile(req.FileID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Write([]byte("File deleted successfully"))
 }
 
 func GetBaseFolderPath() string {

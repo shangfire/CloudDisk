@@ -1,7 +1,7 @@
 /*
  * @Author: shanghanjin
  * @Date: 2024-08-12 11:38:02
- * @LastEditTime: 2024-10-10 14:24:18
+ * @LastEditTime: 2024-10-22 19:44:55
  * @FilePath: \CloudDisk\main.go
  * @Description:main
  */
@@ -41,8 +41,10 @@ func main() {
 
 	// 设置各接口响应函数
 	http.HandleFunc("/api/queryFolder", business.QueryFolder)
-	http.HandleFunc("/api/uploadFile", business.UploadFile)
 	http.HandleFunc("/api/createFolder", business.CreateFolder)
+	http.HandleFunc("/api/uploadFile", business.UploadFile)
+	http.HandleFunc("/api/renameFolder", business.RenameFolder)
+	http.HandleFunc("/api/renameFile", business.RenameFile)
 	http.HandleFunc("/api/deleteFile", business.DeleteFile)
 	http.HandleFunc("/api/deleteFolder", business.DeleteFolder)
 
