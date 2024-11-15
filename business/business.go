@@ -14,7 +14,27 @@ import (
 	"strings"
 )
 
+// // enableCORS 启用 CORS
+// func enableCORS(w http.ResponseWriter, r *http.Request) {
+// 	// 允许所有来源的请求
+// 	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+// 	// 允许的请求方法
+// 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+
+// 	// 允许的请求头
+// 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+// 	// 处理预检请求
+// 	if r.Method == http.MethodOptions {
+// 		w.WriteHeader(http.StatusNoContent)
+// 		return
+// 	}
+// }
+
 func QueryFolder(w http.ResponseWriter, r *http.Request) {
+	// enableCORS(w, r)
+
 	type QueryFolderRequest struct {
 		FolderID int64 `json:"folderID"`
 	}
