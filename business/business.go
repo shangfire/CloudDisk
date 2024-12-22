@@ -5,7 +5,6 @@ import (
 	"CloudDisk/dbwrapper"
 	"CloudDisk/logwrapper"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -13,24 +12,6 @@ import (
 	"strconv"
 	"strings"
 )
-
-// // enableCORS 启用 CORS
-// func enableCORS(w http.ResponseWriter, r *http.Request) {
-// 	// 允许所有来源的请求
-// 	w.Header().Set("Access-Control-Allow-Origin", "*")
-
-// 	// 允许的请求方法
-// 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-
-// 	// 允许的请求头
-// 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-// 	// 处理预检请求
-// 	if r.Method == http.MethodOptions {
-// 		w.WriteHeader(http.StatusNoContent)
-// 		return
-// 	}
-// }
 
 func QueryFolder(w http.ResponseWriter, r *http.Request) {
 	// enableCORS(w, r)
@@ -92,6 +73,13 @@ func CreateFolder(w http.ResponseWriter, r *http.Request) {
 	// create folder of file path
 	relativePath := path.Join(parentFolderPath, req.FolderName)
 	localFullPath := path.Join(GetBaseFolderPath(), relativePath)
+	// failed if folder already exists
+	_, err = os.Stat(localFullPath)
+	if os.IsExist(err) {
+		http.Error(w, "Folder already exists", http.StatusBadRequest)
+		return
+	}
+
 	err = os.MkdirAll(localFullPath, os.ModePerm)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -104,9 +92,15 @@ func CreateFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 查询文件夹信息
+	folderInfo, err := dbwrapper.QueryFolderInfo(folderID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf(`{"folderID": %d}`, folderID)))
+	json.NewEncoder(w).Encode(folderInfo)
 }
 
 func UploadFile(w http.ResponseWriter, r *http.Request) {
@@ -181,9 +175,14 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fileInfo, err := dbwrapper.QueryFileInfo(fileID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf(`{"fileID": %d}`, fileID)))
+	json.NewEncoder(w).Encode(fileInfo)
 }
 
 func RenameFolder(w http.ResponseWriter, r *http.Request) {
@@ -252,7 +251,7 @@ func RenameFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, err := dbwrapper.QueryFile(req.FileID)
+	file, err := dbwrapper.QueryFileInfo(req.FileID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -298,7 +297,7 @@ func DeleteFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	folder, err := dbwrapper.QueryFolder(req.FolderID)
+	folder, err := dbwrapper.QueryFolderInfo(req.FolderID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -338,7 +337,7 @@ func DeleteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fileInfo, err := dbwrapper.QueryFile(req.FileID)
+	fileInfo, err := dbwrapper.QueryFileInfo(req.FileID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

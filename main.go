@@ -1,7 +1,7 @@
 /*
  * @Author: shanghanjin
  * @Date: 2024-08-12 11:38:02
- * @LastEditTime: 2024-10-22 19:44:55
+ * @LastEditTime: 2024-12-22 17:22:36
  * @FilePath: \CloudDisk\main.go
  * @Description:main
  */
@@ -52,6 +52,7 @@ func main() {
 	mux.HandleFunc("/api/deleteFile", business.DeleteFile)
 	mux.HandleFunc("/api/deleteFolder", business.DeleteFolder)
 
+	// 设置跨域请求
 	c := cors.New(cors.Options{
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},

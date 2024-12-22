@@ -1,7 +1,7 @@
 /*
  * @Author: shanghanjin
  * @Date: 2024-08-25 20:51:47
- * @LastEditTime: 2024-10-22 20:36:47
+ * @LastEditTime: 2024-12-22 17:13:45
  * @FilePath: \CloudDisk\dbwrapper\db.go
  * @Description: 数据库操作封装
  */
@@ -186,52 +186,36 @@ func QueryFolderContent(folderID int64) (*QueryFolderResult, error) {
 	return &QueryFolderResult{Folders: folders, Files: files}, nil
 }
 
-func QueryFolder(folderID int64) (*dto.Folder, error) {
-	var (
-		rowsFolder *sql.Rows
-		err        error
-	)
-
+func QueryFolderInfo(folderID int64) (*dto.Folder, error) {
+	var folder dto.Folder
 	query := "SELECT id, name, path, parent_folder_id, created_at, updated_at FROM folders WHERE id = ?;"
-	if rowsFolder, err = db.Query(query, folderID); err != nil {
+	err := db.QueryRow(query, folderID).Scan(&folder.ID, &folder.Name, &folder.Path, &folder.ParentFolderID, &folder.CreatedAt, &folder.UpdatedAt)
+	if err == sql.ErrNoRows {
+		// 如果没有找到记录，返回错误
+		return nil, errors.New("folder does not exist")
+	} else if err != nil {
+		// 其他错误情况
 		return nil, err
 	}
-	defer rowsFolder.Close()
 
-	for rowsFolder.Next() {
-		var folder dto.Folder
-		if err := rowsFolder.Scan(&folder.ID, &folder.Name, &folder.Path, &folder.ParentFolderID, &folder.CreatedAt, &folder.UpdatedAt); err != nil {
-			return nil, err
-		}
-
-		return &folder, nil
-	}
-
-	return nil, errors.New("folder does not exist")
+	return &folder, nil
 }
 
-func QueryFile(fileID int64) (*dto.File, error) {
-	var (
-		rowsFile *sql.Rows
-		err      error
-	)
-
+func QueryFileInfo(fileID int64) (*dto.File, error) {
+	var file dto.File
 	query := "SELECT id, name, path, size, created_at, updated_at, parent_folder_id FROM files WHERE id = ?;"
-	if rowsFile, err = db.Query(query, fileID); err != nil {
+
+	// 使用 QueryRow 替代 Query，因为我们期望只有一个结果
+	err := db.QueryRow(query, fileID).Scan(&file.ID, &file.Name, &file.Path, &file.Size, &file.CreatedAt, &file.UpdatedAt, &file.ParentFolderID)
+	if err == sql.ErrNoRows {
+		// 如果没有找到记录，返回错误
+		return nil, errors.New("file does not exist")
+	} else if err != nil {
+		// 其他错误情况
 		return nil, err
 	}
-	defer rowsFile.Close()
 
-	for rowsFile.Next() {
-		var file dto.File
-		if err := rowsFile.Scan(&file.ID, &file.Name, &file.Path, &file.Size, &file.CreatedAt, &file.UpdatedAt, &file.ParentFolderID); err != nil {
-			return nil, err
-		}
-
-		return &file, nil
-	}
-
-	return nil, errors.New("file does not exist")
+	return &file, nil
 }
 
 func QueryFolderPath(folderID int64) (string, error) {
@@ -266,7 +250,7 @@ func CreateFolder(folderName string, parentFolderID int64) (int64, error) {
 
 	folderPath := path.Join(pathParent, folderName)
 
-	// 检查文件夹是否已存在，如果存在则走更新逻辑
+	// 检查文件夹是否已存在，如果存在则失败
 	query := "SELECT id FROM folders WHERE path = ?;"
 	row := db.QueryRow(query, folderPath)
 
@@ -277,8 +261,7 @@ func CreateFolder(folderName string, parentFolderID int64) (int64, error) {
 	}
 
 	if err != sql.ErrNoRows {
-		UpdateFolderUpdateTime(folderID)
-		return folderID, nil
+		return 0, errors.New("folder already exists")
 	}
 
 	// 插入新文件夹
@@ -306,7 +289,7 @@ func CreateFile(fileName string, fileSize int64, parentFolderID int64) (int64, e
 
 	filePath := path.Join(pathParent, fileName)
 
-	// 检查文件是否已存在，如果存在则走更新逻辑
+	// 检查文件是否已存在，如果存在则失败
 	query := "SELECT id FROM files WHERE path = ?;"
 	row := db.QueryRow(query, filePath)
 
@@ -317,8 +300,7 @@ func CreateFile(fileName string, fileSize int64, parentFolderID int64) (int64, e
 	}
 
 	if err != sql.ErrNoRows {
-		UpdateFileUpdateTime(fileID, fileSize)
-		return fileID, nil
+		return 0, errors.New("file already exists")
 	}
 
 	// 插入新文件
