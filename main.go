@@ -14,6 +14,7 @@ import (
 	"CloudDisk/logwrapper"
 	"net/http"
 
+	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -35,23 +36,34 @@ func main() {
 	// 初始化基础文件夹
 	business.MakeAbsoluteFolder("")
 
+	// 创建一个新的多路复用器
+	mux := http.NewServeMux()
+
 	// 提供浏览页面的服务
 	queryFS := http.FileServer(http.Dir("./html/query"))
-	http.Handle("/query/", http.StripPrefix("/query", queryFS))
+	mux.Handle("/query/", http.StripPrefix("/query", queryFS))
 
 	// 设置各接口响应函数
-	http.HandleFunc("/api/queryFolder", business.QueryFolder)
-	http.HandleFunc("/api/createFolder", business.CreateFolder)
-	http.HandleFunc("/api/uploadFile", business.UploadFile)
-	http.HandleFunc("/api/renameFolder", business.RenameFolder)
-	http.HandleFunc("/api/renameFile", business.RenameFile)
-	http.HandleFunc("/api/deleteFile", business.DeleteFile)
-	http.HandleFunc("/api/deleteFolder", business.DeleteFolder)
+	mux.HandleFunc("/api/queryFolder", business.QueryFolder)
+	mux.HandleFunc("/api/createFolder", business.CreateFolder)
+	mux.HandleFunc("/api/uploadFile", business.UploadFile)
+	mux.HandleFunc("/api/renameFolder", business.RenameFolder)
+	mux.HandleFunc("/api/renameFile", business.RenameFile)
+	mux.HandleFunc("/api/deleteFile", business.DeleteFile)
+	mux.HandleFunc("/api/deleteFolder", business.DeleteFolder)
+
+	c := cors.New(cors.Options{
+		AllowedOrigins: []string{"*"},
+		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization"},
+	})
+
+	handler := c.Handler(mux)
 
 	logwrapper.Logger.Info("Server is running")
 
 	// 启动服务
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	if err := http.ListenAndServe(":8080", handler); err != nil {
 		panic(err)
 	}
 }
