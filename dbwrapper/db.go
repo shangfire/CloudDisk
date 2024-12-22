@@ -135,6 +135,7 @@ func CloseDB() error {
 }
 
 type QueryFolderResult struct {
+	Self    *dto.Folder  `json:"self"`
 	Folders []dto.Folder `json:"folders"`
 	Files   []dto.File   `json:"files"`
 }
@@ -183,13 +184,19 @@ func QueryFolderContent(folderID int64) (*QueryFolderResult, error) {
 		files = append(files, file)
 	}
 
-	return &QueryFolderResult{Folders: folders, Files: files}, nil
+	var self *dto.Folder
+	if self, err = QueryFolderInfo(folderID); err != nil {
+		return nil, err
+	}
+
+	return &QueryFolderResult{Self: self, Folders: folders, Files: files}, nil
 }
 
 func QueryFolderInfo(folderID int64) (*dto.Folder, error) {
 	var folder dto.Folder
+	var parentFolderID sql.NullInt64
 	query := "SELECT id, name, path, parent_folder_id, created_at, updated_at FROM folders WHERE id = ?;"
-	err := db.QueryRow(query, folderID).Scan(&folder.ID, &folder.Name, &folder.Path, &folder.ParentFolderID, &folder.CreatedAt, &folder.UpdatedAt)
+	err := db.QueryRow(query, folderID).Scan(&folder.ID, &folder.Name, &folder.Path, &parentFolderID, &folder.CreatedAt, &folder.UpdatedAt)
 	if err == sql.ErrNoRows {
 		// 如果没有找到记录，返回错误
 		return nil, errors.New("folder does not exist")
@@ -198,6 +205,11 @@ func QueryFolderInfo(folderID int64) (*dto.Folder, error) {
 		return nil, err
 	}
 
+	if parentFolderID.Valid {
+		folder.ParentFolderID = parentFolderID.Int64
+	} else {
+		folder.ParentFolderID = 0
+	}
 	return &folder, nil
 }
 

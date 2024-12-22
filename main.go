@@ -51,12 +51,13 @@ func main() {
 	mux.HandleFunc("/api/renameFile", business.RenameFile)
 	mux.HandleFunc("/api/deleteFile", business.DeleteFile)
 	mux.HandleFunc("/api/deleteFolder", business.DeleteFolder)
+	mux.HandleFunc("/api/downloadFile", business.DownloadFile)
 
 	// 设置跨域请求
 	c := cors.New(cors.Options{
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		AllowedHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization", "Content-Disposition"},
 	})
 
 	handler := c.Handler(mux)

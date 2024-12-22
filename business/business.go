@@ -360,6 +360,36 @@ func DeleteFile(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("File deleted successfully"))
 }
 
+func DownloadFile(w http.ResponseWriter, r *http.Request) {
+	type DownloadFileRequest struct {
+		FileID int64 `json:"fileID"`
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method is not supported.", http.StatusNotFound)
+		return
+	}
+
+	// parse the request body
+	var req DownloadFileRequest
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	fileInfo, err := dbwrapper.QueryFileInfo(req.FileID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Access-Control-Expose-Headers", "Content-Disposition")
+	w.Header().Set("Content-Disposition", "attachment; filename="+fileInfo.Name)
+	w.Header().Set("Content-Type", "application/octet-stream")
+	http.ServeFile(w, r, path.Join(GetBaseFolderPath(), fileInfo.Path))
+}
+
 func GetBaseFolderPath() string {
 	exePath, err := os.Executable()
 	if err != nil {
