@@ -3,7 +3,7 @@
  * @Date: 2024-08-19 17:51:57
  * @LastEditTime: 2024-08-30 15:58:17
  * @FilePath: \UserFeedBack\configwrapper\config.go
- * @Description:
+ * @Description: 配置封装
  */
 package configwrapper
 
@@ -33,18 +33,20 @@ type Config struct {
 var Cfg *Config
 
 /**
- * @description: 读取初始化文件到结构体
+ * @description: 读取初始化文件
  * @param {string} configFilePath config文件路径
  * @return {*}
  */
 func Init(configFilePath string) error {
 	Cfg = &Config{}
 
+	// 读取文件
 	configData, err := os.ReadFile(configFilePath)
 	if err != nil {
 		logger.Logger.Fatalf("Error reading config file: %v", err)
 	}
 
+	// 反序列化
 	err = json.Unmarshal(configData, Cfg)
 	if err != nil {
 		logger.Logger.Fatalf("Error parsing config file: %v", err)

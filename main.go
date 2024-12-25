@@ -1,7 +1,7 @@
 /*
  * @Author: shanghanjin
  * @Date: 2024-08-12 11:38:02
- * @LastEditTime: 2024-12-22 17:22:36
+ * @LastEditTime: 2024-12-25 17:02:07
  * @FilePath: \CloudDisk\main.go
  * @Description:main
  */
@@ -34,14 +34,14 @@ func main() {
 	defer dbwrapper.CloseDB()
 
 	// 初始化基础文件夹
-	business.MakeAbsoluteFolder("")
+	business.MakeAbsoluteFolder("/")
 
 	// 创建一个新的多路复用器
 	mux := http.NewServeMux()
 
 	// 提供浏览页面的服务
-	queryFS := http.FileServer(http.Dir("./html/query"))
-	mux.Handle("/query/", http.StripPrefix("/query", queryFS))
+	staticFS := http.FileServer(http.Dir("./dist"))
+	mux.Handle("/", staticFS)
 
 	// 设置各接口响应函数
 	mux.HandleFunc("/api/queryFolder", business.QueryFolder)

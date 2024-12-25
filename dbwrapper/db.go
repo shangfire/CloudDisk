@@ -1,7 +1,7 @@
 /*
  * @Author: shanghanjin
  * @Date: 2024-08-25 20:51:47
- * @LastEditTime: 2024-12-22 17:13:45
+ * @LastEditTime: 2024-12-25 16:26:54
  * @FilePath: \CloudDisk\dbwrapper\db.go
  * @Description: 数据库操作封装
  */
@@ -30,7 +30,7 @@ var (
 
 /**
  * @description: 初始化数据库连接
- * @return {*}
+ * @return
  */
 func InitDB() {
 	once.Do(func() {
@@ -52,16 +52,16 @@ func InitDB() {
 			logwrapper.Logger.Fatalf("Failed to ping database: %v", err)
 		}
 
-		// 检查 folders 表是否存在，如果不存在则创建它
+		// 检查 folders 表是否存在，如果不存在则创建
 		createTabFolder := `
 		CREATE TABLE IF NOT EXISTS folders (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,  -- 文件夹唯一标识
 			name VARCHAR(255) NOT NULL,            -- 文件夹名
 			path VARCHAR(1024) NOT NULL,           -- 文件夹路径
-			parent_folder_id BIGINT,               -- 父文件夹ID，根目录为NULL
+			parent_folder_id BIGINT,               -- 父文件夹ID,根目录为NULL
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- 文件夹创建时间
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,  -- 文件夹更新时间
-			CONSTRAINT fk_parent_folder FOREIGN KEY (parent_folder_id) REFERENCES folders(id) ON DELETE CASCADE  -- 父文件夹外键，级联删除子文件夹
+			CONSTRAINT fk_parent_folder FOREIGN KEY (parent_folder_id) REFERENCES folders(id) ON DELETE CASCADE  -- 父文件夹外键,级联删除子文件夹
 		);
 		`
 
@@ -89,7 +89,7 @@ func InitDB() {
 		}
 
 		// 检查并创建触发器用于保护根目录不能被删除
-		if isTriggerExist, err := isTriggerExists("protect_root_delete", "folders"); err != nil {
+		if isTriggerExist, err := triggerExist("protect_root_delete", "folders"); err != nil {
 			logwrapper.Logger.Fatalf("Failed to check if trigger exists: %v", err)
 		} else if !isTriggerExist {
 			_, err := db.Exec(`
@@ -106,7 +106,7 @@ func InitDB() {
 			}
 		}
 
-		// 检查 files 表是否存在，如果不存在则创建它
+		// 检查 files 表是否存在，如果不存在则创建
 		createTabFile := `
 		CREATE TABLE IF NOT EXISTS files (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,  -- 文件唯一标识
@@ -116,7 +116,7 @@ func InitDB() {
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- 文件创建时间
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,  -- 文件更新时间
 			parent_folder_id BIGINT,                      -- 文件所属文件夹ID
-			CONSTRAINT fk_folder FOREIGN KEY (parent_folder_id) REFERENCES folders(id) ON DELETE CASCADE  -- 文件夹ID外键，删除文件夹时级联删除文件
+			CONSTRAINT fk_folder FOREIGN KEY (parent_folder_id) REFERENCES folders(id) ON DELETE CASCADE  -- 文件夹ID外键,删除文件夹时级联删除文件
 		);
 		`
 
@@ -128,7 +128,7 @@ func InitDB() {
 
 /**
  * @description: 关闭数据库连接
- * @return {*}
+ * @return
  */
 func CloseDB() error {
 	return db.Close()
@@ -141,11 +141,11 @@ type QueryFolderResult struct {
 }
 
 /**
- * @description: 查询文件夹下的所有文件夹和文件
- * @param {*int64} folderID 文件夹ID
- * @return {*}
+ * @description: 查询文件夹信息，包括文件夹本身信息和所有子文件夹&子文件信息
+ * @param {int64} folderID 文件夹ID
+ * @return {*} QueryFolderResult 被查询信息
  */
-func QueryFolderContent(folderID int64) (*QueryFolderResult, error) {
+func QueryFolderInfoFull(folderID int64) (*QueryFolderResult, error) {
 	var (
 		folders    = []dto.Folder{}
 		files      = []dto.File{}
@@ -154,6 +154,7 @@ func QueryFolderContent(folderID int64) (*QueryFolderResult, error) {
 		err        error
 	)
 
+	// 查询文件夹信息
 	query := "SELECT id, name, path, parent_folder_id, created_at, updated_at FROM folders WHERE parent_folder_id = ?;"
 	if rowsFolder, err = db.Query(query, folderID); err != nil {
 		return nil, err
@@ -169,6 +170,7 @@ func QueryFolderContent(folderID int64) (*QueryFolderResult, error) {
 		folders = append(folders, folder)
 	}
 
+	// 查询文件信息
 	query = "SELECT id, name, path, size, created_at, updated_at, parent_folder_id FROM files WHERE parent_folder_id = ?;"
 	if rowsFile, err = db.Query(query, folderID); err != nil {
 		return nil, err
@@ -184,6 +186,7 @@ func QueryFolderContent(folderID int64) (*QueryFolderResult, error) {
 		files = append(files, file)
 	}
 
+	// 查询自己本身信息
 	var self *dto.Folder
 	if self, err = QueryFolderInfo(folderID); err != nil {
 		return nil, err
@@ -192,6 +195,11 @@ func QueryFolderContent(folderID int64) (*QueryFolderResult, error) {
 	return &QueryFolderResult{Self: self, Folders: folders, Files: files}, nil
 }
 
+/**
+ * @description: 查询文件夹信息
+ * @param {int64} folderID 文件夹id
+ * @return {*} dto.Folder 被查询信息
+ */
 func QueryFolderInfo(folderID int64) (*dto.Folder, error) {
 	var folder dto.Folder
 	var parentFolderID sql.NullInt64
@@ -205,6 +213,7 @@ func QueryFolderInfo(folderID int64) (*dto.Folder, error) {
 		return nil, err
 	}
 
+	// 如果是根目录，因为根目录的parentID是null，所以需要手动设置为0
 	if parentFolderID.Valid {
 		folder.ParentFolderID = parentFolderID.Int64
 	} else {
@@ -213,6 +222,11 @@ func QueryFolderInfo(folderID int64) (*dto.Folder, error) {
 	return &folder, nil
 }
 
+/**
+ * @description: 查询文件信息
+ * @param {int64} fileID 文件id
+ * @return {*} dto.File 被查询信息
+ */
 func QueryFileInfo(fileID int64) (*dto.File, error) {
 	var file dto.File
 	query := "SELECT id, name, path, size, created_at, updated_at, parent_folder_id FROM files WHERE id = ?;"
@@ -230,54 +244,57 @@ func QueryFileInfo(fileID int64) (*dto.File, error) {
 	return &file, nil
 }
 
+/**
+ * @description: 查询文件夹路径
+ * @param {int64} folderID 文件夹ID
+ * @return {string} 文件夹路径
+ */
 func QueryFolderPath(folderID int64) (string, error) {
-	query := "SELECT path FROM folders WHERE id = ?;"
-	row := db.QueryRow(query, folderID)
-
 	var folderPath string
-	err := row.Scan(&folderPath)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return "", errors.New("folder does not exist")
-		}
+	query := "SELECT path FROM folders WHERE id = ?;"
 
+	err := db.QueryRow(query, folderID).Scan(&folderPath)
+	if err == sql.ErrNoRows {
+		return "", errors.New("folder does not exist")
+	} else if err != nil {
 		return "", err
 	}
 
 	return folderPath, err
 }
 
+/**
+ * @description: 创建文件夹
+ * @param {string} folderName 文件夹名称
+ * @param {int64} parentFolderID 父文件夹ID
+ * @return {int64} 新建文件夹ID
+ */
 func CreateFolder(folderName string, parentFolderID int64) (int64, error) {
 	// 检查父文件夹是否存在
-	if idExists, err := isIdExists(parentFolderID, "folders"); err != nil {
+	if idExist, err := FolderExistByID(parentFolderID); err != nil {
 		return 0, err
-	} else if !idExists {
+	} else if !idExist {
 		return 0, errors.New("parent folder does not exist")
 	}
 
+	// 查询父文件夹路径
 	pathParent, err := QueryFolderPath(parentFolderID)
 	if err != nil {
 		return 0, err
 	}
 
+	// 拼接文件夹路径
 	folderPath := path.Join(pathParent, folderName)
 
 	// 检查文件夹是否已存在，如果存在则失败
-	query := "SELECT id FROM folders WHERE path = ?;"
-	row := db.QueryRow(query, folderPath)
-
-	var folderID int64
-	err = row.Scan(&folderID)
-	if err != sql.ErrNoRows && err != nil {
+	if pathExist, err := FolderExistByPath(folderPath); err != nil {
 		return 0, err
-	}
-
-	if err != sql.ErrNoRows {
+	} else if pathExist {
 		return 0, errors.New("folder already exists")
 	}
 
 	// 插入新文件夹
-	query = "INSERT INTO folders (name, path, parent_folder_id) VALUES (?, ?, ?);"
+	query := "INSERT INTO folders (name, path, parent_folder_id) VALUES (?, ?, ?);"
 	res, err := db.Exec(query, folderName, folderPath, parentFolderID)
 	if err != nil {
 		return 0, err
@@ -286,37 +303,39 @@ func CreateFolder(folderName string, parentFolderID int64) (int64, error) {
 	return res.LastInsertId()
 }
 
+/**
+ * @description: 新建文件
+ * @param {string} fileName 文件名
+ * @param {int64} fileSize 文件大小
+ * @param {int64} parentFolderID 父文件夹ID
+ * @return {int64} 新建文件ID
+ */
 func CreateFile(fileName string, fileSize int64, parentFolderID int64) (int64, error) {
 	// 检查父文件夹是否存在
-	if idExists, err := isIdExists(parentFolderID, "folders"); err != nil {
+	if idExist, err := FolderExistByID(parentFolderID); err != nil {
 		return 0, err
-	} else if !idExists {
+	} else if !idExist {
 		return 0, errors.New("parent folder does not exist")
 	}
 
+	// 查询父文件夹路径
 	pathParent, err := QueryFolderPath(parentFolderID)
 	if err != nil {
 		return 0, err
 	}
 
+	// 拼接文件路径
 	filePath := path.Join(pathParent, fileName)
 
 	// 检查文件是否已存在，如果存在则失败
-	query := "SELECT id FROM files WHERE path = ?;"
-	row := db.QueryRow(query, filePath)
-
-	var fileID int64
-	err = row.Scan(&fileID)
-	if err != sql.ErrNoRows && err != nil {
+	if pathExist, err := FileExistByPath(filePath); err != nil {
 		return 0, err
-	}
-
-	if err != sql.ErrNoRows {
+	} else if pathExist {
 		return 0, errors.New("file already exists")
 	}
 
 	// 插入新文件
-	query = "INSERT INTO files (name, path, size, parent_folder_id) VALUES (?, ?, ?, ?);"
+	query := "INSERT INTO files (name, path, size, parent_folder_id) VALUES (?, ?, ?, ?);"
 	res, err := db.Exec(query, fileName, filePath, fileSize, parentFolderID)
 	if err != nil {
 		return 0, err
@@ -325,129 +344,120 @@ func CreateFile(fileName string, fileSize int64, parentFolderID int64) (int64, e
 	return res.LastInsertId()
 }
 
-func RenameFolder(folderID int64, folderName string) error {
-	if idExists, err := isIdExists(folderID, "folders"); err != nil {
+/**
+ * @description: 重命名文件夹
+ * @param {int64} folderID 文件夹ID
+ * @param {string} folderName 文件夹名称
+ * @return
+ */
+func RenameFolder(folderID int64, folderNewName string) error {
+	// 检查文件夹是否存在
+	if idExists, err := FolderExistByID(folderID); err != nil {
 		return err
 	} else if !idExists {
 		return errors.New("folder does not exist")
 	}
 
+	// 查询父文件夹ID
 	parentFolderID, err := QueryParentFolderID(folderID, "folders")
 	if err != nil {
 		return err
 	}
 
+	// 查询父文件夹路径
 	parentPath, err := QueryFolderPath(parentFolderID)
 	if err != nil {
 		return err
 	}
 
-	newPath := path.Join(parentPath, folderName)
+	// 拼接新文件夹路径
+	newPath := path.Join(parentPath, folderNewName)
 
+	// 更新文件夹名称和路径
 	query := "UPDATE folders SET name = ?, path = ? WHERE id = ?;"
-	_, err = db.Exec(query, folderName, newPath, folderID)
+	_, err = db.Exec(query, folderNewName, newPath, folderID)
 	return err
 }
 
-func RenameFile(fileID int64, fileName string) error {
-	if idExists, err := isIdExists(fileID, "files"); err != nil {
+/**
+ * @description: 重命名文件
+ * @param {int64} fileID 文件ID
+ * @param {string} fileName 文件名称
+ * @return
+ */
+func RenameFile(fileID int64, fileNewName string) error {
+	// 检查文件是否存在
+	if idExists, err := FileExistByID(fileID); err != nil {
 		return err
 	} else if !idExists {
 		return errors.New("file does not exist")
 	}
 
+	// 查询父文件夹ID
 	parentFolderID, err := QueryParentFolderID(fileID, "files")
 	if err != nil {
 		return err
 	}
 
+	// 查询父文件夹路径
 	parentPath, err := QueryFolderPath(parentFolderID)
 	if err != nil {
 		return err
 	}
 
-	newPath := path.Join(parentPath, fileName)
+	// 拼接新文件路径
+	newPath := path.Join(parentPath, fileNewName)
 
+	// 更新文件名称和路径
 	query := "UPDATE files SET name = ?, path = ? WHERE id = ?;"
-	_, err = db.Exec(query, fileName, newPath, fileID)
+	_, err = db.Exec(query, fileNewName, newPath, fileID)
 	return err
 }
 
+/**
+ * @description: 删除文件夹
+ * @param {int64} folderID 文件夹ID
+ * @return
+ */
 func DeleteFolder(folderID int64) error {
-	if idExists, err := isIdExists(folderID, "folders"); err != nil {
+	// 检查文件夹是否存在
+	if idExists, err := FolderExistByID(folderID); err != nil {
 		return err
 	} else if !idExists {
 		return errors.New("folder does not exist")
 	}
 
+	// 删除文件夹，级联关系保证了子文件夹和文件也会被删除
 	query := "DELETE FROM folders WHERE id = ?;"
 	_, err := db.Exec(query, folderID)
 	return err
 }
 
+/**
+ * @description: 删除文件
+ * @param {int64} fileID 文件ID
+ * @return
+ */
 func DeleteFile(fileID int64) error {
-	if idExists, err := isIdExists(fileID, "files"); err != nil {
+	// 检查文件是否存在
+	if idExists, err := FileExistByID(fileID); err != nil {
 		return err
 	} else if !idExists {
 		return errors.New("file does not exist")
 	}
 
+	// 删除文件
 	query := "DELETE FROM files WHERE id = ?;"
 	_, err := db.Exec(query, fileID)
 	return err
 }
 
-func UpdateFolderUpdateTime(folderID int64) error {
-	query := "UPDATE folders SET updated_at = NOW() WHERE id = ?;"
-	_, err := db.Exec(query, folderID)
-	return err
-}
-
-func UpdateFileUpdateTime(fileID int64, fileSize int64) error {
-	query := "UPDATE files SET updated_at = NOW(), size = ? WHERE id = ?;"
-	_, err := db.Exec(query, fileSize, fileID)
-	return err
-}
-
-func isTableEmpty(tableName string) (bool, error) {
-	query := fmt.Sprintf("SELECT EXISTS (SELECT 1 FROM %s LIMIT 1);", tableName)
-	row := db.QueryRow(query)
-
-	var exists int
-	err := row.Scan(&exists)
-	if err != nil {
-		return false, err
-	}
-
-	return exists == 0, nil
-}
-
-func isTriggerExists(triggerName string, tableName string) (bool, error) {
-	query := fmt.Sprintf("SELECT EXISTS (SELECT 1 FROM information_schema.triggers WHERE trigger_name = '%s' AND event_object_table = '%s');", triggerName, tableName)
-	row := db.QueryRow(query)
-
-	var exists int
-	err := row.Scan(&exists)
-	if err != nil {
-		return false, err
-	}
-
-	return exists == 1, nil
-}
-
-func isIdExists(id int64, tableName string) (bool, error) {
-	query := fmt.Sprintf("SELECT EXISTS (SELECT 1 FROM %s WHERE id = ?);", tableName)
-	row := db.QueryRow(query, id)
-
-	var exists int
-	err := row.Scan(&exists)
-	if err != nil {
-		return false, err
-	}
-
-	return exists == 1, nil
-}
-
+/**
+ * @description: 查询父文件夹ID
+ * @param {int64} id 文件/夹ID
+ * @param {string} tableName 表名
+ * @return {int64} 父文件夹ID
+ */
 func QueryParentFolderID(id int64, tableName string) (int64, error) {
 	query := fmt.Sprintf("SELECT parent_folder_id FROM %s WHERE id = ?;", tableName)
 	row := db.QueryRow(query, id)
@@ -455,4 +465,112 @@ func QueryParentFolderID(id int64, tableName string) (int64, error) {
 	var parentFolderID int64
 	err := row.Scan(&parentFolderID)
 	return parentFolderID, err
+}
+
+/**
+ * @description: 更新文件夹时间
+ * @param {int64} folderID 文件夹ID
+ * @return
+ */
+func UpdateFolderUpdateTime(folderID int64) error {
+	query := "UPDATE folders SET updated_at = NOW() WHERE id = ?;"
+	_, err := db.Exec(query, folderID)
+	return err
+}
+
+/**
+ * @description: 文件夹路径是否存在
+ * @param {string} path 文件夹路径
+ * @return {bool} 是否存在
+ */
+func FolderExistByPath(path string) (bool, error) {
+	return pathExist(path, "folders")
+}
+
+/**
+ * @description: 文件路径是否存在
+ * @param {string} path 文件路径
+ * @return {bool} 是否存在
+ */
+func FileExistByPath(path string) (bool, error) {
+	return pathExist(path, "files")
+}
+
+/**
+ * @description: 文件夹ID是否存在
+ * @param {int64} folderID 文件夹ID
+ * @return {bool} 是否存在
+ */
+func FolderExistByID(folderID int64) (bool, error) {
+	return idExist(folderID, "folders")
+}
+
+/**
+ * @description: 文件ID是否存在
+ * @param {int64} fileID 文件ID
+ * @return {bool} 是否存在
+ */
+func FileExistByID(fileID int64) (bool, error) {
+	return idExist(fileID, "files")
+}
+
+/**
+ * @description: 更新文件更新时间和大小
+ * @param {int64} fileID 文件ID
+ * @param {int64} fileSize 文件大小
+ * @return
+ */
+func UpdateFileUpdateTimeAndSize(fileID int64, fileSize int64) error {
+	query := "UPDATE files SET updated_at = NOW(), size = ? WHERE id = ?;"
+	_, err := db.Exec(query, fileSize, fileID)
+	return err
+}
+
+func isTableEmpty(tableName string) (bool, error) {
+	query := fmt.Sprintf("SELECT EXISTS (SELECT 1 FROM %s LIMIT 1)", tableName)
+	var exists int
+
+	// EXISTS总是会返回一个值，即使表为空，所以不用检查sql.ErrNoRows
+	err := db.QueryRow(query).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+
+	return exists == 0, nil
+}
+
+func triggerExist(triggerName string, tableName string) (bool, error) {
+	query := fmt.Sprintf("SELECT EXISTS (SELECT 1 FROM information_schema.triggers WHERE trigger_name = '%s' AND event_object_table = '%s');", triggerName, tableName)
+	var exists int
+
+	err := db.QueryRow(query).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+
+	return exists == 1, nil
+}
+
+func idExist(id int64, tableName string) (bool, error) {
+	query := fmt.Sprintf("SELECT EXISTS (SELECT 1 FROM %s WHERE id = ?);", tableName)
+	var exists int
+
+	err := db.QueryRow(query, id).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+
+	return exists == 1, nil
+}
+
+func pathExist(path string, tableName string) (bool, error) {
+	query := fmt.Sprintf("SELECT EXISTS (SELECT 1 FROM %s WHERE path = ?);", tableName)
+	var exists int
+
+	err := db.QueryRow(query, path).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+
+	return exists == 1, nil
 }
