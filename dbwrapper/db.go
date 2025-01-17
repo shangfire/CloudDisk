@@ -1,7 +1,7 @@
 /*
  * @Author: shanghanjin
  * @Date: 2024-08-25 20:51:47
- * @LastEditTime: 2024-12-25 16:26:54
+ * @LastEditTime: 2025-01-17 17:07:19
  * @FilePath: \CloudDisk\dbwrapper\db.go
  * @Description: 数据库操作封装
  */
@@ -89,18 +89,26 @@ func InitDB() {
 		}
 
 		// 检查并创建触发器用于保护根目录不能被删除
+		// 创建触发器时如果不指定DEFINER则会使用当前的DEFINER，如果当前是root@%，后续该账户又被删除了或者被修改为root@localhost，则触发器会报错
 		if isTriggerExist, err := triggerExist("protect_root_delete", "folders"); err != nil {
 			logwrapper.Logger.Fatalf("Failed to check if trigger exists: %v", err)
 		} else if !isTriggerExist {
-			_, err := db.Exec(`
-			CREATE TRIGGER protect_root_delete BEFORE DELETE ON folders
-			FOR EACH ROW
-			BEGIN
-				IF OLD.id = 1 THEN
-					SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Deletion of root directory is not allowed';
-				END IF;
-			END
-			`)
+			definerUser := configwrapper.Cfg.Database.User
+			definerHost := "localhost"
+			definerClause := fmt.Sprintf("DEFINER=`%s`@`%s`", definerUser, definerHost)
+
+			// 构建带有DEFINER子句的创建触发器SQL语句
+			createTriggerSQL := fmt.Sprintf(`
+				CREATE %s TRIGGER protect_root_delete BEFORE DELETE ON folders
+				FOR EACH ROW
+				BEGIN
+					IF OLD.id = 1 THEN
+						SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Deletion of root directory is not allowed';
+					END IF;
+				END
+			`, definerClause)
+
+			_, err := db.Exec(createTriggerSQL)
 			if err != nil {
 				logwrapper.Logger.Fatalf("create trigger failed: %v", err)
 			}
