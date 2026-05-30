@@ -52,6 +52,7 @@ func main() {
 	mux.HandleFunc("/api/deleteFile", business.DeleteFile)
 	mux.HandleFunc("/api/deleteFolder", business.DeleteFolder)
 	mux.HandleFunc("/api/downloadFile", business.DownloadFile)
+	mux.HandleFunc("/api/downloadFolder", business.DownloadFolder)
 
 	// 设置跨域请求
 	c := cors.New(cors.Options{

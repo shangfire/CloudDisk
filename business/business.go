@@ -11,11 +11,13 @@ import (
 	"CloudDisk/configwrapper"
 	"CloudDisk/dbwrapper"
 	"CloudDisk/logwrapper"
+	"archive/zip"
 	"encoding/json"
 	"io"
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -604,6 +606,84 @@ func MakeAbsoluteFolder(relativePath string) {
 	exeFolder := path.Dir(exePath)
 	absoluteFolder := path.Join(exeFolder, configwrapper.Cfg.Local.BaseFolder, relativePath)
 	os.MkdirAll(absoluteFolder, os.ModePerm)
+}
+
+/**
+ * @description: 下载文件夹api（打包成ZIP流返回）
+ * @param {http.ResponseWriter} w
+ * @param {*http.Request} r
+ * @return {*}
+ */
+func DownloadFolder(w http.ResponseWriter, r *http.Request) {
+	// 只支持POST请求
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method is not supported.", http.StatusNotFound)
+		return
+	}
+
+	// 解析请求体
+	type DownloadFolderRequest struct {
+		FolderID int64 `json:"folderID"`
+	}
+	var req DownloadFolderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// 查询文件夹信息
+	folderInfo, err := dbwrapper.QueryFolderInfo(req.FolderID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 获取文件夹本地路径
+	localFolderPath := path.Join(GetBaseFolderPath(), folderInfo.Path)
+
+	// 设置响应头
+	w.Header().Set("Access-Control-Expose-Headers", "Content-Disposition")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+folderInfo.Name+".zip\"")
+	w.Header().Set("Content-Type", "application/zip")
+
+	// 创建ZIP写入器，直接流式写入响应
+	zipWriter := zip.NewWriter(w)
+	defer zipWriter.Close()
+
+	// 遍历文件夹，将所有文件写入ZIP
+	// basePath是文件夹的父目录，使ZIP条目以文件夹名开头
+	basePath := strings.ReplaceAll(path.Dir(localFolderPath), "\\", "/")
+
+	err = filepath.Walk(localFolderPath, func(filePath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+
+		// 计算ZIP内的相对路径（以文件夹名为根）
+		normalizedFilePath := strings.ReplaceAll(filePath, "\\", "/")
+		relPath := strings.TrimPrefix(normalizedFilePath, basePath+"/")
+
+		zipEntry, err := zipWriter.Create(relPath)
+		if err != nil {
+			return err
+		}
+
+		f, err := os.Open(filePath)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+
+		_, err = io.Copy(zipEntry, f)
+		return err
+	})
+
+	if err != nil {
+		logwrapper.Logger.Errorf("Failed to create zip for folder %d: %v", req.FolderID, err)
+	}
 }
 
 /**
