@@ -660,3 +660,33 @@ func Relocate(id int64, folder bool, target int64, name, base string) error {
 	}
 	return nil
 }
+
+// Homepage data uses optimistic versioning to avoid silently overwriting another editor.
+func InitHomepage() error {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS homepage (id INT PRIMARY KEY, body LONGTEXT NOT NULL, version BIGINT NOT NULL DEFAULT 0)`)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`INSERT IGNORE INTO homepage (id,body) VALUES (1,'{"notes":[],"todos":[],"projects":[],"layout":[]}')`)
+	return err
+}
+func ReadHomepage() (string, int64, error) {
+	var body string
+	var version int64
+	err := db.QueryRow("SELECT body,version FROM homepage WHERE id=1").Scan(&body, &version)
+	return body, version, err
+}
+func SaveHomepage(body string, version int64) error {
+	result, err := db.Exec("UPDATE homepage SET body=?,version=version+1 WHERE id=1 AND version=?", body, version)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return errors.New("内容已在其他窗口更新，请刷新后重试")
+	}
+	return nil
+}

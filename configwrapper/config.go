@@ -26,8 +26,9 @@ type Database struct {
 }
 
 type Config struct {
-	Local    Local    `json:"local"`
-	Database Database `json:"database"`
+	AdminPasswordHash string   `json:"adminPasswordHash"`
+	Local             Local    `json:"local"`
+	Database          Database `json:"database"`
 }
 
 var Cfg *Config

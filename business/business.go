@@ -12,6 +12,10 @@ import (
 	"CloudDisk/dbwrapper"
 	"CloudDisk/logwrapper"
 	"archive/zip"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -20,6 +24,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 /**
@@ -661,4 +667,149 @@ func PreviewFile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Disposition", "inline")
 	http.ServeFile(w, r, path.Join(GetBaseFolderPath(), f.Path))
+}
+
+var sessions = struct {
+	sync.Mutex
+	values map[string]time.Time
+}{values: make(map[string]time.Time)}
+
+func isAdmin(r *http.Request) bool {
+	cookie, err := r.Cookie("homepage_session")
+	if err != nil {
+		return false
+	}
+	sessions.Lock()
+	defer sessions.Unlock()
+	expiry, ok := sessions.values[cookie.Value]
+	return ok && time.Now().Before(expiry)
+}
+
+// Permissions wrap all API routes, including the legacy disk mutation endpoints.
+func Permissions(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Cache-Control", "no-store")
+			read := r.Method == http.MethodGet || r.Method == http.MethodHead || (r.URL.Path == "/api/queryFolder" && r.Method == http.MethodPost)
+			auth := r.URL.Path == "/api/login"
+			if !read {
+				if origin := r.Header.Get("Origin"); origin != "" && origin != "http://"+r.Host && origin != "https://"+r.Host {
+					http.Error(w, "来源不受信任", 403)
+					return
+				}
+				if !auth && !isAdmin(r) {
+					http.Error(w, "请先以管理员身份登录", 401)
+					return
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+var loginLimit = struct {
+	sync.Mutex
+	attempts int
+	until    time.Time
+}{}
+
+func Login(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	loginLimit.Lock()
+	defer loginLimit.Unlock()
+	if time.Now().After(loginLimit.until) {
+		loginLimit.attempts = 0
+		loginLimit.until = time.Now().Add(time.Minute)
+	}
+	if loginLimit.attempts >= 10 {
+		http.Error(w, "尝试过于频繁，请稍后重试", 429)
+		return
+	}
+	loginLimit.attempts++
+	var req struct {
+		Password string `json:"password"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req) != nil {
+		http.Error(w, "Invalid request", 400)
+		return
+	}
+	configured := configwrapper.Cfg.AdminPasswordHash
+	if configured == "" {
+		http.Error(w, "请在服务端 config 中配置 adminPasswordHash（密码的 SHA-256）", 503)
+		return
+	}
+	hash := sha256.Sum256([]byte(req.Password))
+	if subtle.ConstantTimeCompare([]byte(hex.EncodeToString(hash[:])), []byte(configured)) != 1 {
+		http.Error(w, "密码错误", 401)
+		return
+	}
+	token := make([]byte, 32)
+	if _, err := rand.Read(token); err != nil {
+		http.Error(w, "登录失败", 500)
+		return
+	}
+	sessions.Lock()
+	for k, v := range sessions.values {
+		if time.Now().After(v) {
+			delete(sessions.values, k)
+		}
+	}
+	sessions.values[hex.EncodeToString(token)] = time.Now().Add(12 * time.Hour)
+	sessions.Unlock()
+	http.SetCookie(w, &http.Cookie{Name: "homepage_session", Value: hex.EncodeToString(token), Path: "/api", HttpOnly: true, Secure: r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https", SameSite: http.SameSiteStrictMode, MaxAge: 43200})
+	w.WriteHeader(204)
+}
+func Session(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodDelete {
+		if c, e := r.Cookie("homepage_session"); e == nil {
+			sessions.Lock()
+			delete(sessions.values, c.Value)
+			sessions.Unlock()
+		}
+		http.SetCookie(w, &http.Cookie{Name: "homepage_session", Path: "/api", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		w.WriteHeader(204)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"admin": isAdmin(r)})
+}
+func Homepage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	switch r.Method {
+	case http.MethodGet:
+		body, version, err := dbwrapper.ReadHomepage()
+		if err != nil {
+			http.Error(w, "读取失败", 500)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"data": json.RawMessage(body), "version": version})
+	case http.MethodPut:
+		var req struct {
+			Data    json.RawMessage `json:"data"`
+			Version int64           `json:"version"`
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<20)).Decode(&req) != nil || !json.Valid(req.Data) {
+			http.Error(w, "内容无效或超过 8 MB", 400)
+			return
+		}
+		var object map[string]json.RawMessage
+		if json.Unmarshal(req.Data, &object) != nil || object == nil {
+			http.Error(w, "内容格式无效", 400)
+			return
+		}
+		if err := dbwrapper.SaveHomepage(string(req.Data), req.Version); err != nil {
+			http.Error(w, err.Error(), 409)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]int64{"version": req.Version + 1})
+	default:
+		http.Error(w, "Method not allowed", 405)
+	}
 }

@@ -14,7 +14,6 @@ import (
 	"CloudDisk/logwrapper"
 	"net/http"
 
-	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -57,14 +56,13 @@ func main() {
 	mux.HandleFunc("/api/previewFile", business.PreviewFile)
 	mux.HandleFunc("/api/moveItem", business.MoveItem)
 
-	// 设置跨域请求
-	c := cors.New(cors.Options{
-		AllowedOrigins: []string{"*"},
-		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization", "Content-Disposition"},
-	})
-
-	handler := c.Handler(mux)
+	if err := dbwrapper.InitHomepage(); err != nil {
+		logwrapper.Logger.Fatal(err)
+	}
+	mux.HandleFunc("/api/login", business.Login)
+	mux.HandleFunc("/api/session", business.Session)
+	mux.HandleFunc("/api/homepage", business.Homepage)
+	handler := business.Permissions(mux)
 
 	logwrapper.Logger.Info("Server is running")
 
