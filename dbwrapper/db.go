@@ -12,7 +12,9 @@ import (
 	"CloudDisk/dto"
 	"CloudDisk/logwrapper"
 	"errors"
+	"os"
 	"path"
+	"strings"
 
 	"database/sql"
 	"fmt"
@@ -581,4 +583,80 @@ func pathExist(path string, tableName string) (bool, error) {
 	}
 
 	return exists == 1, nil
+}
+
+var relocateMu sync.Mutex
+
+// Relocate updates the whole subtree in one transaction and compensates the disk rename on failure.
+func Relocate(id int64, folder bool, target int64, name, base string) error {
+	relocateMu.Lock()
+	defer relocateMu.Unlock()
+	if folder && id == 1 {
+		return fmt.Errorf("不能移动或重命名根目录")
+	}
+	if strings.TrimSpace(name) == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\\x00<>:\"|?*") || strings.HasSuffix(name, ".") || strings.HasSuffix(name, " ") {
+		return fmt.Errorf("名称无效")
+	}
+	var old string
+	var parent int64
+	table := "files"
+	if folder {
+		table = "folders"
+	}
+	if err := db.QueryRow("SELECT path, parent_folder_id FROM "+table+" WHERE id=?", id).Scan(&old, &parent); err != nil {
+		return err
+	}
+	dest, err := QueryFolderPath(target)
+	if err != nil {
+		return err
+	}
+	if folder && (dest == old || strings.HasPrefix(dest, old+"/")) {
+		return fmt.Errorf("不能移动到自身或子目录")
+	}
+	next := path.Join(dest, name)
+	if next == old {
+		return nil
+	}
+	var count int
+	if err = db.QueryRow("SELECT (SELECT COUNT(*) FROM files WHERE path=?) + (SELECT COUNT(*) FROM folders WHERE path=?)", next, next).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return fmt.Errorf("目标目录已有同名条目")
+	}
+	diskOld, diskNew := path.Join(base, old), path.Join(base, next)
+	if _, err = os.Lstat(diskNew); err == nil {
+		return fmt.Errorf("目标路径已存在")
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec("UPDATE "+table+" SET name=?,path=?,parent_folder_id=? WHERE id=?", name, next, target, id); err != nil {
+		return err
+	}
+	if folder {
+		for _, t := range []string{"files", "folders"} {
+			// LEFT uses literal prefix matching, so percent and underscore in names are safe.
+			if _, err = tx.Exec("UPDATE "+t+" SET path=CONCAT(?,SUBSTRING(path,CHAR_LENGTH(?)+1)) WHERE LEFT(path,CHAR_LENGTH(?))=?", next, old, old+"/", old+"/"); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err = tx.Exec("UPDATE folders SET updated_at=NOW() WHERE id IN (?,?)", parent, target); err != nil {
+		return err
+	}
+	if err = os.Rename(diskOld, diskNew); err != nil {
+		return err
+	}
+	if err = tx.Commit(); err != nil {
+		if undo := os.Rename(diskNew, diskOld); undo != nil {
+			return fmt.Errorf("数据库提交失败: %v；磁盘回滚失败: %v", err, undo)
+		}
+		return err
+	}
+	return nil
 }

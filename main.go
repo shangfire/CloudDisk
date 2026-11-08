@@ -54,6 +54,9 @@ func main() {
 	mux.HandleFunc("/api/downloadFile", business.DownloadFile)
 	mux.HandleFunc("/api/downloadFolder", business.DownloadFolder)
 
+	mux.HandleFunc("/api/previewFile", business.PreviewFile)
+	mux.HandleFunc("/api/moveItem", business.MoveItem)
+
 	// 设置跨域请求
 	c := cors.New(cors.Options{
 		AllowedOrigins: []string{"*"},

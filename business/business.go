@@ -291,69 +291,28 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
  * @return {*}
  */
 func RenameFolder(w http.ResponseWriter, r *http.Request) {
-	// 只支持POST请求
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method is not supported.", http.StatusNotFound)
+		http.Error(w, "Method not allowed", 405)
 		return
 	}
-
-	// 解析请求体
-	type RenameFolderRequest struct {
-		FolderName string `json:"folderName"`
-		FolderID   int64  `json:"folderID"`
+	var req struct {
+		ID   int64  `json:"folderID"`
+		Name string `json:"folderName"`
 	}
-	var req RenameFolderRequest
-	err := json.NewDecoder(r.Body).Decode(&req)
+	if json.NewDecoder(r.Body).Decode(&req) != nil {
+		http.Error(w, "Invalid request", 400)
+		return
+	}
+	item, err := dbwrapper.QueryFolderInfo(req.ID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, err.Error(), 400)
 		return
 	}
-
-	// root文件夹无法重命名
-	if req.FolderID == 1 {
-		http.Error(w, "Cannot rename root folder", http.StatusBadRequest)
+	if err = dbwrapper.Relocate(req.ID, true, item.ParentFolderID, req.Name, GetBaseFolderPath()); err != nil {
+		http.Error(w, err.Error(), 409)
 		return
 	}
-
-	// 查询父文件夹路径
-	parentFolderPath, err := dbwrapper.QueryFolderPath(req.FolderID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// 重命名文件夹
-	var oldPath = path.Join(GetBaseFolderPath(), parentFolderPath)
-	var newPath = path.Join(path.Dir(oldPath), req.FolderName)
-	err = os.Rename(oldPath, newPath)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// 如果后续操作没有正常完成，则回滚重命名操作
-	var operationSuc bool
-	defer func() {
-		if !operationSuc {
-			// 回滚重命名操作
-			err := os.Rename(newPath, oldPath)
-			if err != nil {
-				logwrapper.Logger.Errorf("Failed to rollback folder rename: %v", err)
-			}
-		}
-	}()
-
-	// 更新数据库中的文件夹名称
-	err = dbwrapper.RenameFolder(req.FolderID, req.FolderName)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	operationSuc = true
-
-	// 返回成功信息
-	w.Write([]byte("Folder renamed successfully"))
+	w.WriteHeader(http.StatusNoContent)
 }
 
 /**
@@ -363,63 +322,28 @@ func RenameFolder(w http.ResponseWriter, r *http.Request) {
  * @return {*}
  */
 func RenameFile(w http.ResponseWriter, r *http.Request) {
-	// 只支持POST请求
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method is not supported.", http.StatusNotFound)
+		http.Error(w, "Method not allowed", 405)
 		return
 	}
-
-	// 解析请求体
-	type RenameFileRequest struct {
-		FileName string `json:"fileName"`
-		FileID   int64  `json:"fileID"`
+	var req struct {
+		ID   int64  `json:"fileID"`
+		Name string `json:"fileName"`
 	}
-	var req RenameFileRequest
-	err := json.NewDecoder(r.Body).Decode(&req)
+	if json.NewDecoder(r.Body).Decode(&req) != nil {
+		http.Error(w, "Invalid request", 400)
+		return
+	}
+	item, err := dbwrapper.QueryFileInfo(req.ID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, err.Error(), 400)
 		return
 	}
-
-	// 查询文件信息
-	file, err := dbwrapper.QueryFileInfo(req.FileID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err = dbwrapper.Relocate(req.ID, false, item.ParentFolderID, req.Name, GetBaseFolderPath()); err != nil {
+		http.Error(w, err.Error(), 409)
 		return
 	}
-
-	// 重命名文件
-	var oldPath = path.Join(GetBaseFolderPath(), file.Path)
-	var newPath = path.Join(path.Dir(oldPath), req.FileName)
-	err = os.Rename(oldPath, newPath)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// 如果后续操作没有正常完成，则回滚重命名操作
-	var operationSuc bool
-	defer func() {
-		if !operationSuc {
-			// 回滚重命名操作
-			err := os.Rename(newPath, oldPath)
-			if err != nil {
-				logwrapper.Logger.Errorf("Failed to rollback file rename: %v", err)
-			}
-		}
-	}()
-
-	// 更新数据库中的文件名称
-	err = dbwrapper.RenameFile(req.FileID, req.FileName)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	operationSuc = true
-
-	// 返回成功信息
-	w.Write([]byte("File renamed successfully"))
+	w.WriteHeader(http.StatusNoContent)
 }
 
 /**
@@ -568,15 +492,12 @@ func DownloadFile(w http.ResponseWriter, r *http.Request) {
  * @return {string} 路径
  */
 func GetBaseFolderPath() string {
-	exePath, err := os.Executable()
+	// Resolve relative storage paths from the working directory, just like config and logs.
+	baseFolderPath, err := filepath.Abs(configwrapper.Cfg.Local.BaseFolder)
 	if err != nil {
 		logwrapper.Logger.Fatal(err)
 	}
-
-	exePath = strings.ReplaceAll(exePath, "\\", "/")
-	exeFolder := path.Dir(exePath)
-	baseFolderPath := path.Join(exeFolder, configwrapper.Cfg.Local.BaseFolder)
-	return baseFolderPath
+	return filepath.ToSlash(baseFolderPath)
 }
 
 /**
@@ -594,15 +515,9 @@ func MkPathParentFolder(pathStr string) {
  * @return {*}
  */
 func MakeAbsoluteFolder(relativePath string) {
-	exePath, err := os.Executable()
-	if err != nil {
+	if err := os.MkdirAll(path.Join(GetBaseFolderPath(), relativePath), os.ModePerm); err != nil {
 		logwrapper.Logger.Fatal(err)
 	}
-
-	exePath = strings.ReplaceAll(exePath, "\\", "/")
-	exeFolder := path.Dir(exePath)
-	absoluteFolder := path.Join(exeFolder, configwrapper.Cfg.Local.BaseFolder, relativePath)
-	os.MkdirAll(absoluteFolder, os.ModePerm)
 }
 
 /**
@@ -680,4 +595,70 @@ func RemoveFileIgnoreNotExist(path string) error {
 		return nil // 忽略路径不存在的错误
 	}
 	return err
+}
+
+func MoveItem(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	var req struct {
+		ID             int64 `json:"id"`
+		IsFolder       bool  `json:"isFolder"`
+		TargetFolderID int64 `json:"targetFolderID"`
+	}
+	if json.NewDecoder(r.Body).Decode(&req) != nil {
+		http.Error(w, "Invalid request", 400)
+		return
+	}
+	var name string
+	if req.IsFolder {
+		v, e := dbwrapper.QueryFolderInfo(req.ID)
+		if e != nil {
+			http.Error(w, e.Error(), 400)
+			return
+		}
+		name = v.Name
+	} else {
+		v, e := dbwrapper.QueryFileInfo(req.ID)
+		if e != nil {
+			http.Error(w, e.Error(), 400)
+			return
+		}
+		name = v.Name
+	}
+	if e := dbwrapper.Relocate(req.ID, req.IsFolder, req.TargetFolderID, name, GetBaseFolderPath()); e != nil {
+		http.Error(w, e.Error(), 409)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func PreviewFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	id, e := strconv.ParseInt(r.URL.Query().Get("fileID"), 10, 64)
+	if e != nil {
+		http.Error(w, "Invalid fileID", 400)
+		return
+	}
+	f, e := dbwrapper.QueryFileInfo(id)
+	if e != nil {
+		http.Error(w, e.Error(), 404)
+		return
+	}
+	ext := strings.ToLower(path.Ext(f.Name))
+	if ext == ".pdf" {
+		w.Header().Set("Content-Type", "application/pdf")
+	} else if strings.Contains("|.txt|.md|.markdown|.json|.log|.csv|.tsv|.xml|.yaml|.yml|.ini|.conf|.toml|.go|.js|.ts|.jsx|.tsx|.vue|.html|.css|.scss|.py|.java|.c|.cpp|.h|.sh|.sql|.dart|.rs|.bat|.ps1|", "|"+ext+"|") && ext != "" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	} else {
+		http.Error(w, "暂不支持预览此类型文件", 415)
+		return
+	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Disposition", "inline")
+	http.ServeFile(w, r, path.Join(GetBaseFolderPath(), f.Path))
 }
